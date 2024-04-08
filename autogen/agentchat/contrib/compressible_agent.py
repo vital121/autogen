@@ -1,24 +1,19 @@
-from typing import Callable, Dict, Optional, Union, Tuple, List, Any
-from autogen import OpenAIWrapper
-from autogen import Agent, ConversableAgent
-import copy
 import asyncio
+import copy
+import inspect
 import logging
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+
+from autogen import Agent, ConversableAgent, OpenAIWrapper
 from autogen.token_count_utils import count_token, get_max_token_limit, num_tokens_from_functions
 
-try:
-    from termcolor import colored
-except ImportError:
-
-    def colored(x, *args, **kwargs):
-        return x
-
+from ...formatting_utils import colored
 
 logger = logging.getLogger(__name__)
 
 
 class CompressibleAgent(ConversableAgent):
-    """(Experimental) CompressibleAgent agent. While this agent retains all the default functionalities of the `AssistantAgent`,
+    """(CompressibleAgent will be deprecated. Refer to https://github.com/microsoft/autogen/blob/main/notebook/agentchat_capability_long_context_handling.ipynb for long context handling capability.) CompressibleAgent agent. While this agent retains all the default functionalities of the `AssistantAgent`,
         it also provides the added feature of compression when activated through the `compress_config` setting.
 
     `compress_config` is set to False by default, making this agent equivalent to the `AssistantAgent`.
@@ -63,6 +58,8 @@ Reply "TERMINATE" in the end when everything is done.
         llm_config: Optional[Union[Dict, bool]] = None,
         default_auto_reply: Optional[Union[str, Dict, None]] = "",
         compress_config: Optional[Dict] = False,
+        description: Optional[str] = None,
+        **kwargs,
     ):
         """
         Args:
@@ -70,6 +67,7 @@ Reply "TERMINATE" in the end when everything is done.
             system_message (str): system message for the ChatCompletion inference.
                 Please override this attribute if you want to reprogram the agent.
             llm_config (dict): llm inference configuration.
+                Note: you must set `model` in llm_config. It will be used to compute the token count.
                 Please refer to [OpenAIWrapper.create](/docs/reference/oai/client#create)
                 for available options.
             is_termination_msg (function): a function that takes a message in the form of a dictionary
@@ -81,10 +79,9 @@ Reply "TERMINATE" in the end when everything is done.
             compress_config (dict or True/False): config for compression before oai_reply. Default to False.
                 You should contain the following keys:
                 - "mode" (Optional, str, default to "TERMINATE"): Choose from ["COMPRESS", "TERMINATE", "CUSTOMIZED"].
-                    "TERMINATE": terminate the conversation ONLY when token count exceeds the max limit of current model.
-                        `trigger_count` is NOT used in this mode.
-                    "COMPRESS": compress the messages when the token count exceeds the limit.
-                    "CUSTOMIZED": pass in a customized function to compress the messages.
+                    1. `TERMINATE`: terminate the conversation ONLY when token count exceeds the max limit of current model. `trigger_count` is NOT used in this mode.
+                    2. `COMPRESS`: compress the messages when the token count exceeds the limit.
+                    3. `CUSTOMIZED`: pass in a customized function to compress the messages.
                 - "compress_function" (Optional, callable, default to None): Must be provided when mode is "CUSTOMIZED".
                     The function should takes a list of messages and returns a tuple of (is_compress_success: bool, compressed_messages: List[Dict]).
                 - "trigger_count" (Optional, float, int, default to 0.7): the threshold to trigger compression.
@@ -93,6 +90,8 @@ Reply "TERMINATE" in the end when everything is done.
                 - "broadcast" (Optional, bool, default to True): whether to update the compressed message history to sender.
                 - "verbose" (Optional, bool, default to False): Whether to print the content before and after compression. Used when mode="COMPRESS".
                 - "leave_last_n" (Optional, int, default to 0): If provided, the last n messages will not be compressed. Used when mode="COMPRESS".
+            description (str): a short description of the agent. This description is used by other agents
+                (e.g. the GroupChatManager) to decide when to call upon this agent. (Default: system_message)
             **kwargs (dict): Please refer to other kwargs in
                 [ConversableAgent](../conversable_agent#__init__).
         """
@@ -106,6 +105,8 @@ Reply "TERMINATE" in the end when everything is done.
             code_execution_config=code_execution_config,
             llm_config=llm_config,
             default_auto_reply=default_auto_reply,
+            description=description,
+            **kwargs,
         )
 
         self._set_compress_config(compress_config)
@@ -115,6 +116,8 @@ Reply "TERMINATE" in the end when everything is done.
             self.llm_compress_config = False
             self.compress_client = None
         else:
+            if "model" not in llm_config:
+                raise ValueError("llm_config must contain the 'model' field.")
             self.llm_compress_config = self.llm_config.copy()
             # remove functions
             if "functions" in self.llm_compress_config:
@@ -195,7 +198,7 @@ Reply "TERMINATE" in the end when everything is done.
             reply_func = reply_func_tuple["reply_func"]
             if exclude and reply_func in exclude:
                 continue
-            if asyncio.coroutines.iscoroutinefunction(reply_func):
+            if inspect.iscoroutinefunction(reply_func):
                 continue
             if self._match_trigger(reply_func_tuple["trigger"], sender):
                 final, reply = reply_func(self, messages=messages, sender=sender, config=reply_func_tuple["config"])
@@ -225,7 +228,7 @@ Reply "TERMINATE" in the end when everything is done.
         # 1. mode = "TERMINATE", terminate the agent if no token left.
         if self.compress_config["mode"] == "TERMINATE":
             if max_token_allowed - token_used <= 0:
-                # Teminate if no token left.
+                # Terminate if no token left.
                 print(
                     colored(
                         f'Warning: Terminate Agent "{self.name}" due to no token left for oai reply. max token for {model}: {max_token_allowed}, existing token count: {token_used}',
@@ -320,7 +323,7 @@ Reply "TERMINATE" in the end when everything is done.
                         cmsg["role"] = "user"
                     sender._oai_messages[self][i] = cmsg
 
-            # sucessfully compressed, return False, None for generate_oai_reply to be called with the updated messages
+            # successfully compressed, return False, None for generate_oai_reply to be called with the updated messages
             return False, None
         return final, None
 
@@ -332,7 +335,7 @@ Reply "TERMINATE" in the end when everything is done.
         """Compress a list of messages into one message.
 
         The first message (the initial prompt) will not be compressed.
-        The rest of the messages will be compressed into one message, the model is asked to distinuish the role of each message: USER, ASSISTANT, FUNCTION_CALL, FUNCTION_RETURN.
+        The rest of the messages will be compressed into one message, the model is asked to distinguish the role of each message: USER, ASSISTANT, FUNCTION_CALL, FUNCTION_RETURN.
         Check out the compress_sys_msg.
 
         TODO: model used in compression agent is different from assistant agent: For example, if original model used by is gpt-4; we start compressing at 70% of usage, 70% of 8092 = 5664; and we use gpt 3.5 here max_toke = 4096, it will raise error. choosinng model automatically?
@@ -403,7 +406,7 @@ Rules:
             print(colored(f"Failed to compress the content due to {e}", "red"), flush=True)
             return False, None
 
-        compressed_message = self.client.extract_text_or_function_call(response)[0]
+        compressed_message = self.client.extract_text_or_completion_object(response)[0]
         assert isinstance(compressed_message, str), f"compressed_message should be a string: {compressed_message}"
         if self.compress_config["verbose"]:
             print(

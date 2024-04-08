@@ -55,7 +55,7 @@ victordibia:
 afourney:
   name: Adam Fourney
   title: Principal Researcher Microsoft Research
-  url: https://github.com/afourney
+  url: https://www.adamfourney.com
   image_url: https://github.com/afourney.png
 
 beibinli:
@@ -93,3 +93,33 @@ LinxinS97:
   title: MS student at Waseda University
   url: https://linxins97.github.io/
   image_url: https://github.com/LinxinS97.png
+
+skzhang1:
+  name: Shaokun Zhang
+  title: PhD student at the Pennsylvania State University
+  url: https://github.com/skzhang1
+  image_url: https://github.com/skzhang1.png
+
+olgavrou:
+  name: Olga Vrousgou
+  title: Senior Software Engineer at Microsoft Research
+  url: https://github.com/olgavrou/
+  image_url: https://github.com/olgavrou.png
+
+joshkyh:
+  name: Joshua Kim
+  title: AI Freelancer at SpectData
+  url: https://github.com/joshkyh/
+  image_url: https://github.com/joshkyh.png
+
+freedeaths:
+  name: Yishen Sun
+  title: Data Scientist at PingCAP LAB
+  url: https://github.com/freedeaths/
+  image_url: https://github.com/freedeaths.png
+
+yifanzeng:
+  name: Yifan Zeng
+  title: PhD student at Oregon State University
+  url: https://xhmy.github.io/
+  image_url: https://xhmy.github.io/assets/img/photo.JPG
